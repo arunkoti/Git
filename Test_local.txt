@@ -1,0 +1,41 @@
+# List of remote servers
+$Servers = @("Server1", "Server2", "Server3") # Replace with your server names
+$AppPoolName = "YourAppPoolName" # Replace with the target application pool name
+
+# Function to remove folders related to the app pool
+function Remove-AppPoolFolders {
+    param (
+        [string]$ComputerName,
+        [string]$AppPoolName
+    )
+
+    Write-Host "Processing on $ComputerName for App Pool: $AppPoolName"
+
+    try {
+        # Get the application pool folder paths
+        Invoke-Command -ComputerName $ComputerName -ScriptBlock {
+            param ($AppPoolName)
+
+            # Assuming application pool folders are in a standard directory
+            # Adjust the base path as per your setup
+            $BasePath = "C:\inetpub\wwwroot"
+            $TargetPaths = Get-ChildItem -Path $BasePath -Directory -Recurse |
+                Where-Object { $_.Name -eq $AppPoolName }
+
+            foreach ($Path in $TargetPaths) {
+                Write-Host "Deleting: $($Path.FullName)"
+                Remove-Item -Path $Path.FullName -Recurse -Force -ErrorAction Stop
+            }
+
+        } -ArgumentList $AppPoolName
+        Write-Host "Completed processing on $ComputerName"
+    }
+    catch {
+        Write-Host "Failed on $ComputerName: $_"
+    }
+}
+
+# Loop through servers and execute the cleanup
+foreach ($Server in $Servers) {
+    Remove-AppPoolFolders -ComputerName $Server -AppPoolName $AppPoolName
+}
