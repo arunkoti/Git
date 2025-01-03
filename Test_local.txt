@@ -1,41 +1,94 @@
-# List of remote servers
-$Servers = @("Server1", "Server2", "Server3") # Replace with your server names
-$AppPoolName = "YourAppPoolName" # Replace with the target application pool name
+# =====================================================
+# Script: DeleteAppPoolFolders_MultipleServers.ps1
+# Description: Deletes folders related to multiple application pools on multiple servers one by one.
+# Author: Your Name
+# Date: YYYY-MM-DD
+# =====================================================
 
-# Function to remove folders related to the app pool
+# -------------------------
+# Configuration Section
+# -------------------------
+
+# Define the servers
+$Servers = @("Server1", "Server2", "Server3")  # Replace with actual server names or IP addresses
+
+# Define the application pools whose folders need to be deleted
+$AppPools = @("AppPool1", "AppPool2", "AppPool3")  # Replace with actual app pool names
+
+# Define the base directory where app pool folders are located
+$BasePath = "C:\inetpub\wwwroot"
+
+# Define the path for the log file
+$LogFile = "C:\Scripts\DeleteAppPoolFolders_MultipleServers.log"
+
+# -------------------------
+# Function Definitions
+# -------------------------
+
+# Function to log messages with timestamps
+function Write-Log {
+    param (
+        [string]$Message,
+        [string]$LogPath = $LogFile
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "$timestamp - $Message"
+    Write-Output $logMessage
+    if ($LogPath) {
+        Add-Content -Path $LogPath -Value $logMessage
+    }
+}
+
+# Function to delete folders for specific app pools on a specific server
 function Remove-AppPoolFolders {
     param (
-        [string]$ComputerName,
-        [string]$AppPoolName
+        [string]$ServerName,
+        [string[]]$AppPools,
+        [string]$BasePath
     )
 
-    Write-Host "Processing on $ComputerName for App Pool: $AppPoolName"
+    Write-Log "Starting deletion process on server: $ServerName"
 
-    try {
-        # Get the application pool folder paths
-        Invoke-Command -ComputerName $ComputerName -ScriptBlock {
-            param ($AppPoolName)
+    foreach ($AppPool in $AppPools) {
+        # Construct the folder path
+        $FolderPath = Join-Path -Path $BasePath -ChildPath $AppPool
 
-            # Assuming application pool folders are in a standard directory
-            # Adjust the base path as per your setup
-            $BasePath = "C:\inetpub\wwwroot"
-            $TargetPaths = Get-ChildItem -Path $BasePath -Directory -Recurse |
-                Where-Object { $_.Name -eq $AppPoolName }
-
-            foreach ($Path in $TargetPaths) {
-                Write-Host "Deleting: $($Path.FullName)"
-                Remove-Item -Path $Path.FullName -Recurse -Force -ErrorAction Stop
+        try {
+            # Check if the folder exists remotely
+            $Command = {
+                param ($FolderPath)
+                if (Test-Path -Path $FolderPath) {
+                    Remove-Item -Path $FolderPath -Recurse -Force -ErrorAction Stop
+                    return "Successfully deleted: $FolderPath"
+                } else {
+                    return "Folder not found: $FolderPath"
+                }
             }
 
-        } -ArgumentList $AppPoolName
-        Write-Host "Completed processing on $ComputerName"
+            # Invoke the command on the remote server
+            $Result = Invoke-Command -ComputerName $ServerName -ScriptBlock $Command -ArgumentList $FolderPath
+            Write-Log "Server: $ServerName - $Result"
+        }
+        catch {
+            Write-Log "Error on server $ServerName while processing folder $FolderPath: $_"
+        }
     }
-    catch {
-        Write-Host "Failed on $ComputerName: $_"
-    }
+
+    Write-Log "Completed deletion process on server: $ServerName"
 }
 
-# Loop through servers and execute the cleanup
+# -------------------------
+# Main Execution Section
+# -------------------------
+
+# Start logging
+Write-Log "Script execution started."
+
+# Iterate through each server
 foreach ($Server in $Servers) {
-    Remove-AppPoolFolders -ComputerName $Server -AppPoolName $AppPoolName
+    # Call the function to delete app pool folders for each server
+    Remove-AppPoolFolders -ServerName $Server -AppPools $AppPools -BasePath $BasePath
 }
+
+# End logging
+Write-Log "Script execution completed."
