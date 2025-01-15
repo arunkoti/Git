@@ -1,0 +1,31 @@
+# Define the path to the applicationHost.config file
+$configPath = "C:\Windows\System32\inetsrv\config\applicationHost.config"
+
+# Load the configuration file as XML
+[xml]$config = Get-Content $configPath
+
+# Navigate to the basic authentication mappings section
+$authSection = $config.configuration.'system.webServer'.security.authentication.'basicAuthentication'
+
+# Check if the credentials section exists
+if ($authSection.credentials -ne $null) {
+    # Find the mapping to update
+    $mappingToUpdate = $authSection.credentials.add | Where-Object { $_.name -eq "ExistingUsername" }
+
+    if ($mappingToUpdate) {
+        # Update the password for the specified username
+        $mappingToUpdate.password = "NewPassword"
+        Write-Host "Updated password for user 'ExistingUsername'"
+    } else {
+        Write-Host "No mapping found for the specified username."
+    }
+
+    # Save the updated configuration
+    $config.Save($configPath)
+    Write-Host "Configuration updated and saved successfully."
+} else {
+    Write-Host "No credentials section found in the configuration."
+}
+
+# Restart IIS to apply changes
+iisreset
