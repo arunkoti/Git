@@ -1,0 +1,209 @@
+<#
+.SYNOPSIS
+    Monitors replication latency between two geo-replicated Azure Cache for Redis instances.
+.DESCRIPTION
+    This script connects to both primary and secondary Redis instances and measures the replication
+    latency in an active-active setup. It provides continuous monitoring with configurable intervals.
+.PARAMETER PrimaryRedisName
+    Name of the primary Azure Cache for Redis instance
+.PARAMETER SecondaryRedisName
+    Name of the secondary Azure Cache for Redis instance
+.PARAMETER PrimaryRedisKey
+    Access key for the primary Redis instance
+.PARAMETER SecondaryRedisKey
+    Access key for the secondary Redis instance
+.PARAMETER MonitoringInterval
+    Time in seconds between latency checks (default: 60 seconds)
+.PARAMETER DurationMinutes
+    Total duration to run monitoring in minutes (default: 60 minutes)
+.EXAMPLE
+    .\Monitor-RedisReplicationLatency.ps1 -PrimaryRedisName "myredis-eastus" -SecondaryRedisName "myredis-westus" `
+        -PrimaryRedisKey "primaryKey..." -SecondaryRedisKey "secondaryKey..." `
+        -MonitoringInterval 30 -DurationMinutes 120
+#>
+
+param (
+    [Parameter(Mandatory=$true)]
+    [string]$PrimaryRedisName,
+    
+    [Parameter(Mandatory=$true)]
+    [string]$SecondaryRedisName,
+    
+    [Parameter(Mandatory=$true)]
+    [string]$PrimaryRedisKey,
+    
+    [Parameter(Mandatory=$true)]
+    [string]$SecondaryRedisKey,
+    
+    [int]$MonitoringInterval = 60,
+    
+    [int]$DurationMinutes = 60
+)
+
+# Import required modules
+if (-not (Get-Module -Name Az -ErrorAction SilentlyContinue)) {
+    Write-Host "Installing Az module..."
+    Install-Module -Name Az -AllowClobber -Force -Scope CurrentUser
+}
+
+Import-Module Az
+
+# Connect to Azure (if not already connected)
+if (-not (Get-AzContext)) {
+    Connect-AzAccount
+}
+
+# Load Redis .NET client
+try {
+    Add-Type -Path "$($env:ProgramFiles)\dotnet\shared\Microsoft.NETCore.App\*\StackExchange.Redis.dll" -ErrorAction Stop
+} catch {
+    Write-Error "StackExchange.Redis assembly not found. Please install the Redis .NET client."
+    exit 1
+}
+
+# Function to get Redis connection
+function Get-RedisConnection {
+    param (
+        [string]$redisName,
+        [string]$redisKey
+    )
+    
+    $config = [StackExchange.Redis.ConfigurationOptions]::new()
+    $config.EndPoints.Add("$redisName.redis.cache.windows.net:6380")
+    $config.Password = $redisKey
+    $config.Ssl = $true
+    $config.AbortOnConnectFail = $false
+    
+    try {
+        $connection = [StackExchange.Redis.ConnectionMultiplexer]::Connect($config)
+        return $connection
+    } catch {
+        Write-Error "Failed to connect to Redis $redisName : $_"
+        return $null
+    }
+}
+
+# Function to measure replication latency
+function Measure-ReplicationLatency {
+    param (
+        [StackExchange.Redis.ConnectionMultiplexer]$primaryConnection,
+        [StackExchange.Redis.ConnectionMultiplexer]$secondaryConnection
+    )
+    
+    $primaryDb = $primaryConnection.GetDatabase()
+    $secondaryDb = $secondaryConnection.GetDatabase()
+    
+    # Generate a unique test key
+    $testKey = "latency_test_" + [Guid]::NewGuid().ToString()
+    $testValue = [DateTime]::UtcNow.Ticks.ToString()
+    
+    try {
+        # Write to primary
+        $primaryWriteStart = [DateTime]::UtcNow
+        $primaryDb.StringSet($testKey, $testValue)
+        $primaryWriteEnd = [DateTime]::UtcNow
+        $primaryWriteTime = ($primaryWriteEnd - $primaryWriteStart).TotalMilliseconds
+        
+        # Check replication to secondary
+        $startTime = [DateTime]::UtcNow
+        $timeout = 5000 # 5 seconds timeout
+        $replicated = $false
+        
+        while (-not $replicated -and ([DateTime]::UtcNow - $startTime).TotalMilliseconds -lt $timeout) {
+            $secondaryValue = $secondaryDb.StringGet($testKey)
+            if ($secondaryValue -eq $testValue) {
+                $replicated = $true
+                $replicationTime = ([DateTime]::UtcNow - $primaryWriteEnd).TotalMilliseconds
+            }
+            Start-Sleep -Milliseconds 100
+        }
+        
+        # Clean up
+        $primaryDb.KeyDelete($testKey)
+        $secondaryDb.KeyDelete($testKey)
+        
+        if ($replicated) {
+            return [PSCustomObject]@{
+                PrimaryWriteTime = $primaryWriteTime
+                ReplicationTime = $replicationTime
+                Success = $true
+            }
+        } else {
+            return [PSCustomObject]@{
+                PrimaryWriteTime = $primaryWriteTime
+                ReplicationTime = $null
+                Success = $false
+            }
+        }
+    } catch {
+        Write-Error "Error during latency measurement: $_"
+        return [PSCustomObject]@{
+            PrimaryWriteTime = $null
+            ReplicationTime = $null
+            Success = $false
+        }
+    }
+}
+
+# Main monitoring function
+function Start-ReplicationMonitoring {
+    param (
+        [int]$durationMinutes,
+        [int]$intervalSeconds
+    )
+    
+    Write-Host "Starting Redis replication latency monitoring between $PrimaryRedisName and $SecondaryRedisName"
+    Write-Host "Monitoring interval: $intervalSeconds seconds"
+    Write-Host "Total duration: $durationMinutes minutes"
+    Write-Host "`n"
+    
+    # Establish connections
+    $primaryConn = Get-RedisConnection -redisName $PrimaryRedisName -redisKey $PrimaryRedisKey
+    $secondaryConn = Get-RedisConnection -redisName $SecondaryRedisName -redisKey $SecondaryRedisKey
+    
+    if (-not $primaryConn -or -not $secondaryConn) {
+        Write-Error "Failed to establish Redis connections. Exiting."
+        return
+    }
+    
+    # Prepare CSV output
+    $timestamp = Get-Date -Format "yyyyMMddHHmmss"
+    $outputFile = "RedisReplicationLatency_$timestamp.csv"
+    "Timestamp,PrimaryWriteTime(ms),ReplicationTime(ms),Success" | Out-File -FilePath $outputFile
+    
+    $endTime = (Get-Date).AddMinutes($durationMinutes)
+    $iteration = 0
+    
+    while ((Get-Date) -lt $endTime) {
+        $iteration++
+        $currentTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        
+        Write-Host "[$currentTime] Iteration $iteration : Measuring replication latency..."
+        
+        $result = Measure-ReplicationLatency -primaryConnection $primaryConn -secondaryConnection $secondaryConn
+        
+        if ($result.Success) {
+            Write-Host "  Primary write time: $($result.PrimaryWriteTime) ms"
+            Write-Host "  Replication time: $($result.ReplicationTime) ms"
+            "$currentTime,$($result.PrimaryWriteTime),$($result.ReplicationTime),$($result.Success)" | Out-File -FilePath $outputFile -Append
+        } else {
+            Write-Host "  Replication check failed or timed out"
+            "$currentTime,$($result.PrimaryWriteTime),,False" | Out-File -FilePath $outputFile -Append
+        }
+        
+        Write-Host "`n"
+        
+        if ((Get-Date).AddSeconds($intervalSeconds) -lt $endTime) {
+            Start-Sleep -Seconds $intervalSeconds
+        }
+    }
+    
+    # Close connections
+    $primaryConn.Close()
+    $secondaryConn.Close()
+    
+    Write-Host "Monitoring completed. Results saved to $outputFile"
+}
+
+# Start monitoring
+Start-ReplicationMonitoring -durationMinutes $DurationMinutes -intervalSeconds $MonitoringInterval
