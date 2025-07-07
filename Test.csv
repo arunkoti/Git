@@ -1,0 +1,36 @@
+Here's a detailed Bill of Materials (BOM) for 6 instances of Azure Cache for Redis using Enterprise E5 and E10 SKUs:
+
+### Azure Cache for Redis Enterprise BOM (6 Instances)
+**Last Updated:** July 2024 (prices are estimates and vary by region)
+
+| Component | E5 Specification | E10 Specification | Quantity | E5 Monthly Estimate | E10 Monthly Estimate | E5 Total (6) | E10 Total (6) |
+|-----------|------------------|-------------------|----------|---------------------|----------------------|--------------|---------------|
+| **Base Cache** | 5GB memory | 10GB memory | 6 | ~$684/instance | ~$1,368/instance | ~$4,104 | ~$8,208 |
+| **Compute** | Up to 12,000 ops/sec | Up to 30,000 ops/sec | 6 | Included | Included | - | - |
+| **Data Persistence** | Optional add-on | Optional add-on | 6 | ~$342/instance | ~$684/instance | ~$2,052 | ~$4,104 |
+| **Zone Redundancy** | 3-zone deployment | 3-zone deployment | 6 | Included | Included | - | - |
+| **Enterprise Flash** | Not available | Not available | - | - | - | - | - |
+| **Scaling Units** | 1 unit = 5GB | 1 unit = 10GB | 6 | Base price | Base price | - | - |
+| **Total Monthly Cost** | | | | | | **~$6,156** | **~$12,312** |
+
+### Additional Optional Features:
+
+| Feature | Applicable to | Cost (Monthly) | 6 Instances Cost |
+|---------|---------------|----------------|-------------------|
+| Geo-Replication | E5, E10 | ~25% of base cache | ~$1,026 (E5) / ~$2,052 (E10) |
+| Redis Modules (Bloom, Search, etc.) | E5, E10 | ~$171/instance | ~$1,026 |
+| Customer Managed Keys | E5, E10 | ~$85/instance | ~$510 |
+| Enhanced Support | E5, E10 | 10-25% of spend | Variable |
+
+### Important Notes:
+1. **Pricing**: Based on US East list prices (actual costs vary by region and currency)
+2. **Reserved Capacity**: 1-year commitment reduces costs by ~20%, 3-year by ~40%
+3. **Enterprise Flash**: Available only on E100 and higher tiers
+4. **Throughput**: E5 supports ~12K ops/sec, E10 ~30K ops/sec per instance
+5. **HA Default**: All enterprise tiers include automatic zone-redundant deployment
+
+Would you like me to:
+1. Provide a comparison with Standard/Premium tiers?
+2. Include typical networking costs?
+3. Create a 3-year TCO projection with reserved instances?
+4. Suggest optimal instance distribution based on workload patterns?
